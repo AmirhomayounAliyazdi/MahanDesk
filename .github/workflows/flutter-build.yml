@@ -23,12 +23,17 @@ jobs:
         with:
           submodules: recursive
 
-      # افزودن فلاتر به این جاب برای رفع خطای flutter: not found
       - name: Install flutter
         uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      # گام کلیدی: دریافت پکیج‌های فلاتر برای ساخته شدن پوشه .dart_tool
+      - name: Flutter pub get
+        run: |
+          cd flutter
+          flutter pub get
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
@@ -40,7 +45,6 @@ jobs:
 
       - name: Generate Bridge
         run: |
-          # افزودن skip-deps-check برای نادیده گرفتن ماژول‌های مفقود در زمان تولید کد
           flutter_rust_bridge_codegen \
             --rust-input src/flutter_ffi.rs \
             --dart-output flutter/lib/bridge_generated.dart \
@@ -100,6 +104,7 @@ jobs:
           rustup target add ${{ matrix.job.target }}
           cargo install cargo-ndk
           cd flutter
+          # اجرای اسکریپت‌های پروژه برای بیلد بخش بومی
           if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then 
             bash ndk_arm64.sh
           else 
@@ -111,6 +116,7 @@ jobs:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
         run: |
           cd flutter
+          # غیرفعال کردن کلیدهای امضا برای خروجی Unsigned
           sed -i "s/signingConfig signingConfigs.release/\/\/signingConfig signingConfigs.release/g" android/app/build.gradle || true
           flutter build apk --release --target-platform android-${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }} --split-per-abi
 
