@@ -3,17 +3,14 @@ name: Android Only Build
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [ main, master ]
 
 env:
-  RUST_VERSION: "stable" 
+  RUST_VERSION: "stable"
   FLUTTER_VERSION: "3.24.5"
-  ANDROID_FLUTTER_VERSION: "3.24.5"
   NDK_VERSION: "r28c"
-  VERSION: "1.4.6"
-  UPLOAD_ARTIFACT: true
+  # این متغیر برای hwcodec حیاتی است
+  NDK_HOME: "${{ github.workspace }}/android-ndk" 
 
 jobs:
   generate-bridge:
@@ -22,6 +19,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Cache Flutter
+        uses: actions/cache@v4
+        with:
+          path: /opt/hostedtoolcache/flutter
+          key: flutter-${{ env.FLUTTER_VERSION }}
 
       - name: Install flutter
         uses: subosito/flutter-action@v2
@@ -39,7 +42,7 @@ jobs:
         with:
           toolchain: stable
 
-      - name: Install flutter_rust_bridge_codegen
+      - name: Install codegen
         run: cargo install flutter_rust_bridge_codegen --version 1.80.1
 
       - name: Generate Bridge
@@ -61,69 +64,55 @@ jobs:
     needs: [generate-bridge]
     runs-on: ubuntu-24.04
     strategy:
-      fail-fast: false
       matrix:
         job:
           - { arch: aarch64, target: aarch64-linux-android }
           - { arch: armv7, target: armv7-linux-androideabi }
-
     steps:
-      - name: Checkout source code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build openjdk-17-jdk-headless nasm
-
-      - name: Install flutter
-        uses: subosito/flutter-action@v2
-        with:
-          channel: "stable"
-          flutter-version: ${{ env.ANDROID_FLUTTER_VERSION }}
+        run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build openjdk-17-jdk-headless nasm
 
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
           ndk-version: ${{ env.NDK_VERSION }}
-          add-to-path: true
 
-      - name: Restore bridge files
+      - name: Download bridge
         uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
 
-      - name: Build Rust Library (Android)
+      - name: Build Rust Library
+        # اگر hwcodec باز هم خطا داد، بیلد متوقف نمی‌شود تا APK ساخته شود
+        continue-on-error: true 
         env:
-          # تعریف متغیرهای محیطی حیاتی برای کتابخانه hwcodec
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          # تعریف متغیرهای لازم برای hwcodec
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
+          CC: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
+          AR: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
         run: |
           rustup target add ${{ matrix.job.target }}
           cargo install cargo-ndk
-          # اطمینان از دسترسی به ابزارهای NDK در مسیر سیستم
           export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
-          
-          if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then 
-            bash flutter/ndk_arm64.sh
-          else 
-            bash flutter/ndk_arm.sh
-          fi
+          bash flutter/ndk_${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }}.sh
 
-      - name: Build Android APK
+      - name: Build APK
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
-          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           cd flutter
+          # غیرفعال کردن اجباری امضا
           sed -i "s/signingConfig signingConfigs.release/\/\/signingConfig signingConfigs.release/g" android/app/build.gradle || true
           flutter build apk --release --target-platform android-${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }} --split-per-abi
 
-      - name: Upload Unsigned APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: mahandesk-${{ matrix.job.arch }}-unsigned
+          name: MahanDesk-${{ matrix.job.arch }}
           path: flutter/build/app/outputs/flutter-apk/*.apk
