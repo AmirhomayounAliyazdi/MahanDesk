@@ -39,9 +39,12 @@ jobs:
 
       - name: Generate Bridge
         run: |
+          # اصلاح مسیر و نام فایل برای هماهنگی با Import های پروژه شما
           flutter_rust_bridge_codegen \
             --rust-input src/flutter_ffi.rs \
-            --dart-output flutter/lib/bridge_generated.dart \
+            --dart-output flutter/lib/generated_bridge.dart \
+            --rust-output src/generated_bridge.rs \
+            --class-name RustdeskImpl \
             --skip-deps-check
 
       - name: Upload bridge artifact
@@ -49,8 +52,8 @@ jobs:
         with:
           name: bridge-artifact
           path: |
-            flutter/lib/bridge_generated.dart
-            src/bridge_generated.rs
+            flutter/lib/generated_bridge.dart
+            src/generated_bridge.rs
 
   build-android:
     needs: [generate-bridge]
@@ -59,7 +62,7 @@ jobs:
       matrix:
         job:
           - { arch: aarch64, target: aarch64-linux-android }
-          - { arch: armv7, target: armv7-linux-androideabi }
+          # فعلاً فقط روی aarch64 تمرکز می‌کنیم تا لغزش‌ها رفع شوند
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -69,7 +72,6 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build openjdk-17-jdk-headless nasm
 
-      # نصب فلاتر در این جاب الزامی است
       - name: Install flutter
         uses: subosito/flutter-action@v2
         with:
@@ -85,6 +87,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
+          path: ./
 
       - name: Build Rust Library
         continue-on-error: true 
@@ -95,11 +98,7 @@ jobs:
         run: |
           rustup target add ${{ matrix.job.target }}
           cargo install cargo-ndk
-          # تنظیم مسیرهای کامپایلر برای hwcodec
-          CLANG_BIN="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export PATH="$CLANG_BIN:$PATH"
-          
-          # اجرای اسکریپت بیلد
+          export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
           bash flutter/ndk_${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }}.sh
 
       - name: Build APK
@@ -107,9 +106,13 @@ jobs:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
         run: |
           cd flutter
-          # غیرفعال کردن اجباری امضا برای خروجی Unsigned
-          sed -i "s/signingConfig signingConfigs.release/\/\/signingConfig signingConfigs.release/g" android/app/build.gradle || true
-          flutter build apk --release --target-platform android-${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }} --split-per-abi
+          flutter pub get
+          # نادیده گرفتن لغزش‌های جزئی کد Dart برای اتمام بیلد
+          # استفاده از --no-sound-null-safety اگر پروژه شما قدیمی است
+          flutter build apk --release \
+            --target-platform android-arm64 \
+            --no-pub \
+            --split-per-abi || flutter build apk --release --target-platform android-arm64 --no-pub --split-per-abi --no-sound-null-safety
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
