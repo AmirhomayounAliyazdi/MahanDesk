@@ -64,8 +64,8 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - { arch: aarch64, target: aarch64-linux-android, suffix: "arm64-v8a" }
-          - { arch: armv7, target: armv7-linux-androideabi, suffix: "armeabi-v7a" }
+          - { arch: aarch64, target: aarch64-linux-android }
+          - { arch: armv7, target: armv7-linux-androideabi }
 
     steps:
       - name: Checkout source code
@@ -76,7 +76,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build openjdk-17-jdk-headless
+          sudo apt-get install -y clang cmake ninja-build openjdk-17-jdk-headless nasm
 
       - name: Install flutter
         uses: subosito/flutter-action@v2
@@ -97,12 +97,16 @@ jobs:
 
       - name: Build Rust Library (Android)
         env:
+          # تعریف متغیرهای محیطی حیاتی برای کتابخانه hwcodec
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           rustup target add ${{ matrix.job.target }}
           cargo install cargo-ndk
-          # اجرای اسکریپت‌ها از ریشه پروژه برای دسترسی به Cargo.toml
+          # اطمینان از دسترسی به ابزارهای NDK در مسیر سیستم
+          export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          
           if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then 
             bash flutter/ndk_arm64.sh
           else 
@@ -112,12 +116,10 @@ jobs:
       - name: Build Android APK
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           cd flutter
-          # غیرفعال کردن کلیدهای امضا
           sed -i "s/signingConfig signingConfigs.release/\/\/signingConfig signingConfigs.release/g" android/app/build.gradle || true
-          
-          # ساخت APK برای معماری مشخص شده
           flutter build apk --release --target-platform android-${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }} --split-per-abi
 
       - name: Upload Unsigned APK
