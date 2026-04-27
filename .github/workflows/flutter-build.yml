@@ -9,8 +9,6 @@ env:
   RUST_VERSION: "stable"
   FLUTTER_VERSION: "3.24.5"
   NDK_VERSION: "r28c"
-  # این متغیر برای hwcodec حیاتی است
-  NDK_HOME: "${{ github.workspace }}/android-ndk" 
 
 jobs:
   generate-bridge:
@@ -19,12 +17,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Cache Flutter
-        uses: actions/cache@v4
-        with:
-          path: /opt/hostedtoolcache/flutter
-          key: flutter-${{ env.FLUTTER_VERSION }}
 
       - name: Install flutter
         uses: subosito/flutter-action@v2
@@ -77,6 +69,13 @@ jobs:
       - name: Install dependencies
         run: sudo apt-get update && sudo apt-get install -y clang cmake ninja-build openjdk-17-jdk-headless nasm
 
+      # نصب فلاتر در این جاب الزامی است
+      - name: Install flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
       - uses: nttld/setup-ndk@v1
         id: setup-ndk
         with:
@@ -88,18 +87,19 @@ jobs:
           name: bridge-artifact
 
       - name: Build Rust Library
-        # اگر hwcodec باز هم خطا داد، بیلد متوقف نمی‌شود تا APK ساخته شود
         continue-on-error: true 
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          # تعریف متغیرهای لازم برای hwcodec
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-          CC: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/clang
-          AR: ${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar
+          ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           rustup target add ${{ matrix.job.target }}
           cargo install cargo-ndk
-          export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+          # تنظیم مسیرهای کامپایلر برای hwcodec
+          CLANG_BIN="${{ steps.setup-ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export PATH="$CLANG_BIN:$PATH"
+          
+          # اجرای اسکریپت بیلد
           bash flutter/ndk_${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }}.sh
 
       - name: Build APK
@@ -107,7 +107,7 @@ jobs:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
         run: |
           cd flutter
-          # غیرفعال کردن اجباری امضا
+          # غیرفعال کردن اجباری امضا برای خروجی Unsigned
           sed -i "s/signingConfig signingConfigs.release/\/\/signingConfig signingConfigs.release/g" android/app/build.gradle || true
           flutter build apk --release --target-platform android-${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }} --split-per-abi
 
