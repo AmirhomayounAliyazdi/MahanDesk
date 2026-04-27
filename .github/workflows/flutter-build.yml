@@ -29,7 +29,6 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      # گام کلیدی: دریافت پکیج‌های فلاتر برای ساخته شدن پوشه .dart_tool
       - name: Flutter pub get
         run: |
           cd flutter
@@ -65,8 +64,8 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - { arch: aarch64, target: aarch64-linux-android }
-          - { arch: armv7, target: armv7-linux-androideabi }
+          - { arch: aarch64, target: aarch64-linux-android, suffix: "arm64-v8a" }
+          - { arch: armv7, target: armv7-linux-androideabi, suffix: "armeabi-v7a" }
 
     steps:
       - name: Checkout source code
@@ -103,12 +102,11 @@ jobs:
         run: |
           rustup target add ${{ matrix.job.target }}
           cargo install cargo-ndk
-          cd flutter
-          # اجرای اسکریپت‌های پروژه برای بیلد بخش بومی
+          # اجرای اسکریپت‌ها از ریشه پروژه برای دسترسی به Cargo.toml
           if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then 
-            bash ndk_arm64.sh
+            bash flutter/ndk_arm64.sh
           else 
-            bash ndk_arm.sh
+            bash flutter/ndk_arm.sh
           fi
 
       - name: Build Android APK
@@ -116,8 +114,10 @@ jobs:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
         run: |
           cd flutter
-          # غیرفعال کردن کلیدهای امضا برای خروجی Unsigned
+          # غیرفعال کردن کلیدهای امضا
           sed -i "s/signingConfig signingConfigs.release/\/\/signingConfig signingConfigs.release/g" android/app/build.gradle || true
+          
+          # ساخت APK برای معماری مشخص شده
           flutter build apk --release --target-platform android-${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }} --split-per-abi
 
       - name: Upload Unsigned APK
