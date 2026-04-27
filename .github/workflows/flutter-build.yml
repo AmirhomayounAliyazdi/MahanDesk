@@ -8,7 +8,6 @@ on:
       - master
 
 env:
-  # برای اندروید از آخرین نسخه پایدار راست استفاده می‌کنیم تا با بسته‌های جدید سازگار باشد
   RUST_VERSION: "stable" 
   FLUTTER_VERSION: "3.24.5"
   ANDROID_FLUTTER_VERSION: "3.24.5"
@@ -24,18 +23,28 @@ jobs:
         with:
           submodules: recursive
 
+      # افزودن فلاتر به این جاب برای رفع خطای flutter: not found
+      - name: Install flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: stable # استفاده از stable برای جلوگیری از خطای edition2024
+          toolchain: stable
 
       - name: Install flutter_rust_bridge_codegen
         run: cargo install flutter_rust_bridge_codegen --version 1.80.1
 
       - name: Generate Bridge
         run: |
-          # مسیر ورودی و خروجی بر پایه فایل flutter_ffi.rs پروژه شما
-          flutter_rust_bridge_codegen --rust-input src/flutter_ffi.rs --dart-output flutter/lib/bridge_generated.dart
+          # افزودن skip-deps-check برای نادیده گرفتن ماژول‌های مفقود در زمان تولید کد
+          flutter_rust_bridge_codegen \
+            --rust-input src/flutter_ffi.rs \
+            --dart-output flutter/lib/bridge_generated.dart \
+            --skip-deps-check
 
       - name: Upload bridge artifact
         uses: actions/upload-artifact@v4
@@ -82,7 +91,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
-          path: ./
 
       - name: Build Rust Library (Android)
         env:
@@ -92,7 +100,6 @@ jobs:
           rustup target add ${{ matrix.job.target }}
           cargo install cargo-ndk
           cd flutter
-          # اجرای اسکریپت‌های بومی پروژه شما برای بیلد کتابخانه راست
           if [[ "${{ matrix.job.arch }}" == "aarch64" ]]; then 
             bash ndk_arm64.sh
           else 
@@ -104,9 +111,7 @@ jobs:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
         run: |
           cd flutter
-          # اطمینان از اینکه بیلد به صورت Unsigned انجام می‌شود
           sed -i "s/signingConfig signingConfigs.release/\/\/signingConfig signingConfigs.release/g" android/app/build.gradle || true
-          
           flutter build apk --release --target-platform android-${{ matrix.job.arch == 'aarch64' && 'arm64' || 'arm' }} --split-per-abi
 
       - name: Upload Unsigned APK
