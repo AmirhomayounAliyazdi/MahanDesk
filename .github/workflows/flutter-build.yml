@@ -33,10 +33,11 @@ jobs:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Flutter pub get
+      - name: Flutter pub get & build_runner
         run: |
           cd flutter
           flutter pub get
+          dart run build_runner build --delete-conflicting-outputs || true
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@v1
@@ -51,7 +52,7 @@ jobs:
           flutter_rust_bridge_codegen \
             --rust-input src/flutter_ffi.rs \
             --dart-output flutter/lib/generated_bridge.dart \
-            --rust-output src/generated_bridge.rs \
+            --rust-output src/bridge_generated.rs \
             --class-name RustdeskImpl \
             --skip-deps-check
 
@@ -60,8 +61,8 @@ jobs:
         with:
           name: bridge-artifact
           path: |
-            flutter/lib/generated_bridge.dart
-            src/generated_bridge.rs
+            flutter/lib/*bridge*
+            src/*bridge*
 
   # ==========================================
   # 2. ساخت نسخه اندروید (APK)
@@ -109,9 +110,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            /opt/vcpkg
+            /opt/vcpkg/installed
             ~/oboe
-          key: android-deps-arm64-${{ env.NDK_VERSION }}-v2
+          key: android-deps-arm64-${{ env.NDK_VERSION }}-v3
 
       - name: Build Android native dependencies (vcpkg & oboe)
         if: steps.cache-android-deps.outputs.cache-hit != 'true'
@@ -119,11 +120,17 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
+          sudo rm -rf /opt/vcpkg
           sudo git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
           sudo chown -R $USER:$USER /opt/vcpkg
           /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics
           export VCPKG_ROOT=/opt/vcpkg
-          /opt/vcpkg/vcpkg install --classic --allow-unsupported libvpx:arm64-android libyuv:arm64-android opus:arm64-android aom:arm64-android
+          /opt/vcpkg/vcpkg install --classic --allow-unsupported \
+            libvpx:arm64-android \
+            libyuv:arm64-android \
+            opus:arm64-android \
+            aom:arm64-android \
+            "ffmpeg[core,avcodec,avformat,avutil]:arm64-android"
           bash flutter/build_android_deps.sh || true
 
       - name: Build Rust Library for Android (arm64)
@@ -196,13 +203,20 @@ jobs:
           vcpkg install --classic libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
 
       - name: Build Rust Core DLL (librustdesk.dll)
+        shell: bash
         env:
           VCPKG_ROOT: C:\vcpkg
         run: |
           cargo build --release --features flutter --lib
-          cp target/release/deps/librustdesk.dll flutter/windows/ || cp target/release/librustdesk.dll flutter/windows/
+          if [ -f target/release/rustdesk.dll ] && [ ! -f target/release/librustdesk.dll ]; then
+            cp target/release/rustdesk.dll target/release/librustdesk.dll
+          fi
+          mkdir -p target/release/deps
+          cp target/release/librustdesk.dll target/release/deps/ || true
+          cp target/release/librustdesk.dll flutter/windows/ || true
 
       - name: Build Windows App
+        shell: bash
         run: |
           cd flutter
           flutter pub get
