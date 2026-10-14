@@ -109,9 +109,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ${{ github.workspace }}/vcpkg
+            /opt/vcpkg
             ~/oboe
-          key: android-deps-arm64-${{ env.NDK_VERSION }}-v1
+          key: android-deps-arm64-${{ env.NDK_VERSION }}-v2
 
       - name: Build Android native dependencies (vcpkg & oboe)
         if: steps.cache-android-deps.outputs.cache-hit != 'true'
@@ -119,10 +119,11 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          git clone https://github.com/microsoft/vcpkg.git "${{ github.workspace }}/vcpkg"
-          "${{ github.workspace }}/vcpkg/bootstrap-vcpkg.sh" -disableMetrics
-          export VCPKG_ROOT="${{ github.workspace }}/vcpkg"
-          $VCPKG_ROOT/vcpkg install libvpx:arm64-android libyuv:arm64-android opus:arm64-android aom:arm64-android
+          sudo git clone https://github.com/microsoft/vcpkg.git /opt/vcpkg
+          sudo chown -R $USER:$USER /opt/vcpkg
+          /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics
+          export VCPKG_ROOT=/opt/vcpkg
+          /opt/vcpkg/vcpkg install --classic --allow-unsupported libvpx:arm64-android libyuv:arm64-android opus:arm64-android aom:arm64-android
           bash flutter/build_android_deps.sh || true
 
       - name: Build Rust Library for Android (arm64)
@@ -130,7 +131,7 @@ jobs:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
-          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+          VCPKG_ROOT: /opt/vcpkg
         run: |
           cargo install cargo-ndk
           export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
@@ -187,12 +188,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: C:\vcpkg\installed
-          key: win-vcpkg-x64-static-v1
+          key: win-vcpkg-x64-static-v2
 
       - name: Install vcpkg libraries for Windows
         if: steps.cache-win-vcpkg.outputs.cache-hit != 'true'
         run: |
-          vcpkg install libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
+          vcpkg install --classic libvpx:x64-windows-static libyuv:x64-windows-static opus:x64-windows-static aom:x64-windows-static
 
       - name: Build Rust Core DLL (librustdesk.dll)
         env:
@@ -201,7 +202,7 @@ jobs:
           cargo build --release --features flutter --lib
           cp target/release/deps/librustdesk.dll flutter/windows/ || cp target/release/librustdesk.dll flutter/windows/
 
-      - name: Apply Flutter patch & Build Windows App
+      - name: Build Windows App
         run: |
           cd flutter
           flutter pub get
